@@ -1,120 +1,114 @@
-import tkinter as tk
-from tkinter import ttk
-import tkinter.font as tkfont
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib.pyplot as plt
 import numpy as np
-import os
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize_scalar
 
-def create_optimization_gui():
-    root = tk.Tk()
-    root.title("Порівняльна характеристика методів оптимізації")
-    root.geometry("1250x720")
-    root.configure(bg="#f0f0f0")
+# ==================== 1. Contour plot + траєкторії ====================
+def plot_optimization_paths():
+    def loss(w):
+        x, y = w
+        return 0.1*(x**2) + 2*(y**2) + 0.5*np.sin(3*x) + 0.3*np.cos(4*y)
 
-    # ==================== Заголовок ====================
-    title = tk.Label(root, text="Порівняльна характеристика методів оптимізації",
-                     font=tkfont.Font(family="Helvetica", size=18, weight="bold"),
-                     bg="#f0f0f0", fg="#1a3c6e")
-    title.pack(pady=10)
+    def grad(w):
+        x, y = w
+        gx = 0.2*x + 1.5*np.cos(3*x)
+        gy = 4*y - 1.2*np.sin(4*y)
+        return np.array([gx, gy])
 
-    # ==================== Таблиця ====================
-    frame_table = tk.Frame(root, bg="#f0f0f0")
-    frame_table.pack(pady=5, padx=20, fill="x")
+    # Метод найшвидшого спуску (з Line Search)
+    def steepest_descent(w0, max_iter=12):
+        path = [w0.copy()]
+        w = w0.copy()
+        for i in range(max_iter):
+            g = grad(w)
+            if np.linalg.norm(g) < 1e-6:
+                break
 
-    columns = ("char", "gd", "sd", "newton")
-    tree = ttk.Treeview(frame_table, columns=columns, show="headings", height=7)
+            def line_search_eta(eta):
+                return loss(w - eta * g)
 
-    tree.heading("char", text="Характеристика")
-    tree.heading("gd", text="Градієнтний спуск")
-    tree.heading("sd", text="Метод найшвидшого спуску")
-    tree.heading("newton", text="Метод Ньютона")
+            # Виправлення: використовуємо bracket замість bounds
+            res = minimize_scalar(line_search_eta, 
+                                  bracket=(0, 0.01, 2.0),   # початкові точки для пошуку
+                                  method='brent',
+                                  tol=1e-6)
+            eta_opt = res.x
+            w = w - eta_opt * g
+            path.append(w.copy())
+            
+            print(f"Ітерація {i+1:2d} | η = {eta_opt:.4f} | Loss = {loss(w):.6f}")
+        return np.array(path)
 
-    tree.column("char", width=280, anchor="w")
-    tree.column("gd", width=220, anchor="center")
-    tree.column("sd", width=220, anchor="center")
-    tree.column("newton", width=220, anchor="center")
+    # Звичайний Gradient Descent
+    def gradient_descent(w0, eta=0.08, max_iter=25):
+        path = [w0.copy()]
+        w = w0.copy()
+        for _ in range(max_iter):
+            g = grad(w)
+            w = w - eta * g
+            path.append(w.copy())
+        return np.array(path)
 
-    data = [
-        ("Швидкість збіжності", "Лінійна", "Суперіорна лінійна", "Квадратична"),
-        ("Обчислення на ітерацію", "Низьке", "Середнє/високе", "Високе"),
-        ("Потреба в налаштуванні η", "Так", "Ні", "Ні"),
-        ("Пам’ять", "O(d)", "O(d)", "O(d²)"),
-        ("Стабільність", "Висока", "Висока", "Середня"),
-        ("Придатність для великих мереж", "Відмінна", "Добра", "Погана"),
-    ]
+    # Створення контурного графіка
+    x = np.linspace(-3.5, 3.5, 250)
+    y = np.linspace(-3.5, 3.5, 250)
+    X, Y = np.meshgrid(x, y)
+    Z = np.array([[loss([xi, yi]) for xi in x] for yi in y])
 
-    for i, row in enumerate(data):
-        tree.insert("", "end", values=row)
+    plt.figure(figsize=(12, 8))
+    plt.contour(X, Y, Z, levels=50, cmap='viridis', alpha=0.75)
+    plt.contour(X, Y, Z, levels=15, colors='black', linewidths=0.5, alpha=0.4)
 
-    tree.pack(side="left", fill="both", expand=True)
+    w0 = np.array([-2.8, 2.6])
 
-    info = tk.Label(root, text="d — кількість параметрів (у нашій задачі d = 17)",
-                    font=("Helvetica", 10, "italic"), bg="#f0f0f0", fg="#444")
-    info.pack(pady=5)
+    path_gd = gradient_descent(w0, eta=0.08, max_iter=22)
+    path_sd = steepest_descent(w0, max_iter=12)
 
-    # ==================== Графіки ====================
-    fig = Figure(figsize=(11, 5), dpi=100)
-    axs = fig.subplots(1, 3, sharey=True)
+    plt.plot(path_gd[:,0], path_gd[:,1], 'o-', color='#e74c3c', 
+             label='Gradient Descent (фіксований η=0.08)', linewidth=2, markersize=4)
+    
+    plt.plot(path_sd[:,0], path_sd[:,1], 'o-', color='#2ecc71', 
+             label='Steepest Descent (Line Search + Brent)', linewidth=2.5, markersize=5)
 
-    methods = ["Gradient Descent", "Steepest Descent", "Newton's Method"]
-    colors = ['#e74c3c', '#3498db', '#2ecc71']
-    convergence = [0.85, 0.65, 0.25]   # умовна швидкість збіжності
+    plt.xlabel('$w_1$', fontsize=14)
+    plt.ylabel('$w_2$', fontsize=14)
+    plt.title('Порівняння траєкторій оптимізації\nGradient Descent vs Метод найшвидшого спуску', 
+              fontsize=15, pad=20)
+    plt.legend(fontsize=12)
+    plt.grid(True, alpha=0.3)
 
-    for i, ax in enumerate(axs):
-        # Симуляція збіжності
-        iterations = np.arange(0, 31)
-        error = np.exp(-convergence[i] * iterations) + np.random.normal(0, 0.015, 31)
-        error = np.maximum(error, 1e-6)
-        
-        ax.plot(iterations, error, 'o-', color=colors[i], linewidth=2.5, markersize=4)
-        ax.set_title(methods[i], fontsize=11, fontweight='bold')
-        ax.set_xlabel("Ітерації")
-        ax.set_ylabel("Логарифмічна похибка" if i == 0 else "")
-        ax.grid(True, alpha=0.3)
-        ax.set_yscale('log')
+    plt.tight_layout()
+    plt.savefig("Steepest_Descent_vs_GD.png", dpi=300, bbox_inches='tight')
+    print("\n✅ Графік збережено: Steepest_Descent_vs_GD.png")
+    plt.show()
 
-    fig.tight_layout()
-    canvas = FigureCanvasTkAgg(fig, root)
-    canvas.draw()
-    canvas.get_tk_widget().pack(pady=10, padx=20, fill="both", expand=True)
 
-    # ==================== Кнопки збереження ====================
-    btn_frame = tk.Frame(root, bg="#f0f0f0")
-    btn_frame.pack(pady=10)
+# ==================== 2. Ілюстрація Line Search ====================
+def plot_line_search():
+    eta_values = np.linspace(0, 4, 300)
+    
+    # Приклад функції вздовж напрямку спуску
+    def loss_along_line(eta):
+        return (eta - 2.5)**2 + 0.5*np.sin(8*eta) + 1.0   # з невеликою осциляцією
 
-    def save_table():
-        # Збереження таблиці як зображення (matplotlib)
-        fig_table = plt.figure(figsize=(10, 4))
-        ax = fig_table.add_subplot(111)
-        ax.axis('off')
-        
-        table_data = [["Характеристика", "Градієнтний спуск", "Найшвидший спуск", "Метод Ньютона"]] + data
-        table = ax.table(cellText=table_data, loc='center', cellLoc='center', bbox=[0,0,1,1])
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.scale(1.2, 2)
-        
-        plt.savefig("Порівняльна_таблиця.png", dpi=300, bbox_inches='tight')
-        plt.close()
-        print("✅ Таблиця збережена як 'Порівняльна_таблиця.png'")
+    loss_values = [loss_along_line(eta) for eta in eta_values]
 
-    def save_plots():
-        fig.savefig("Порівняння_збіжності.png", dpi=300, bbox_inches='tight')
-        print("✅ Графіки збережена як 'Порівняння_збіжності.png'")
+    plt.figure(figsize=(10, 6))
+    plt.plot(eta_values, loss_values, 'b-', linewidth=2.5, label=r'$L(\mathbf{w} - \eta \nabla L(\mathbf{w}))$')
+    
+    plt.axvline(x=2.5, color='red', linestyle='--', linewidth=2, label=r'Оптимальне $\eta \approx 2.5$')
+    plt.scatter([2.5], [loss_along_line(2.5)], color='red', s=120, zorder=5, edgecolors='black')
 
-    tk.Button(btn_frame, text="💾 Зберегти таблицю", command=save_table,
-              bg="#2980b9", fg="white", font=("Helvetica", 10, "bold"), padx=15, pady=8).pack(side="left", padx=10)
+    plt.title('Ілюстрація Line Search в методі найшвидшого спуску', fontsize=14)
+    plt.xlabel('Розмір кроку η', fontsize=13)
+    plt.ylabel('Значення функції втрат', fontsize=13)
+    plt.legend(fontsize=12)
+    plt.grid(True, alpha=0.3)
 
-    tk.Button(btn_frame, text="💾 Зберегти графіки", command=save_plots,
-              bg="#27ae60", fg="white", font=("Helvetica", 10, "bold"), padx=15, pady=8).pack(side="left", padx=10)
-
-    tk.Button(btn_frame, text="Закрити", command=root.destroy,
-              bg="#c0392b", fg="white", font=("Helvetica", 10, "bold"), padx=15, pady=8).pack(side="left", padx=10)
-
-    root.mainloop()
+    plt.savefig("Line_Search_Illustration.png", dpi=300, bbox_inches='tight')
+    print("✅ Графік збережено: Line_Search_Illustration.png")
+    plt.show()
 
 
 if __name__ == "__main__":
-    create_optimization_gui()
+    plot_optimization_paths()
+    plot_line_search()
