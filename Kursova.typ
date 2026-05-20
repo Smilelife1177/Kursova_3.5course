@@ -604,7 +604,7 @@ $L(\mathbf{w}) = \frac{1}{4} \sum_{i=1}^{4} (y_i - \hat{y}_i)^2$`,
 
 #bibliography(
   "lib.bib",
-  title: "6. Список літератури",
+  title: "6.    Список літератури",
   full: true,
 )
 
