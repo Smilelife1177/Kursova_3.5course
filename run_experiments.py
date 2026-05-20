@@ -175,6 +175,6 @@ for xi, yi, pi in zip(X, y.ravel(), preds.ravel()):
 # ─────────────────────────────────────────────
 #  Зберігаємо графік
 # ─────────────────────────────────────────────
-out_path = '/mnt/user-data/outputs/convergence_plots.png'
+out_path = 'convergence_plots.png'
 plt.savefig(out_path, dpi=150, bbox_inches='tight', facecolor=fig.get_facecolor())
 print(f"\n  Графік збережено: {out_path}")

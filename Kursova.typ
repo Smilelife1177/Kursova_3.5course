@@ -604,3 +604,7 @@ $L(\mathbf{w}) = \frac{1}{4} \sum_{i=1}^{4} (y_i - \hat{y}_i)^2$`,
   full: true,
 )
 //
+#pagebreak()
+#align(center)[
+  = ДОДАТКИ
+]
