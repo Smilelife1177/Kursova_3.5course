@@ -1,6 +1,10 @@
 #import "@preview/mitex:0.2.7": *
 
+#import "@preview/codly:1.3.0": *
+#import "@preview/codly-languages:0.1.1": *
+#show: codly-init.with()
 
+#codly(languages: codly-languages)
 #assert.eq(mitex-convert("\alpha x"), "alpha  x ")
 
 #set page(
@@ -120,7 +124,7 @@
 
 Концептуально штучні нейронні мережі (ШНМ) є електронними та математичними моделями складної нейронної структури мозку, головною особливістю якої є здатність запам'ятовувати інформацію та застосовувати набутий досвід. Біологічний нейрон складається з тіла (соми), розгалужених відростків, якими приймаються вхідні імпульси (дендритів), та єдиного аксона, по якому нейрон здатний передавати імпульс далі.
 
-Цей біологічний принцип повністю змодельовано в архітектурі штучного нейрона, який являє собою обчислювальний пристрій з декількома входами та одним виходом. Кожному входу ставиться у відповідність певний ваговий коефіцієнт ($w_i$), що характеризує пропускну здатність каналу і оцінює ступінь впливу конкретного вхідного сигналу на загальний сигнал на виході. У тілі штучного нейрона спочатку відбувається зважене підсумовування всіх вхідних збуджень. Отримане значення #mitext(`($d = \sum w_i x_i$)`) стає аргументом активаційної функції нейрона $F(d)$, яка формує кінцевий вихідний сигнал. У даній роботі в якості активаційної функції використовується нелінійна сигмоїда, що математично описується як $y = 1 / (1 + e^{-d})$.
+Цей біологічний принцип повністю змодельовано в архітектурі штучного нейрона, який являє собою обчислювальний пристрій з декількома входами та одним виходом. Кожному входу ставиться у відповідність певний ваговий коефіцієнт ($w_i$), що характеризує пропускну здатність каналу і оцінює ступінь впливу конкретного вхідного сигналу на загальний сигнал на виході. У тілі штучного нейрона спочатку відбувається зважене підсумовування всіх вхідних збуджень. Отримане значення #mitext(`($d = \sum w_i x_i$)`) стає аргументом активаційної функції нейрона $F(d)$, яка формиує кінцевий вихідний сигнал. У даній роботі в якості активаційної функції використовується нелінійна сигмоїда, що математично описується як $y = 1 / (1 + e^{-d})$.
 
 Для вирішення нелінійних задач, таких як класифікація функції XOR, окремі нейрони групуються, утворюючи штучну нейронну мережу. Більшість класичних реалізацій, включаючи досліджуваний багатошаровий перцептрон (MLP), організовані у вигляді з'єднаних між собою шарів (прошарків) і містять щонайменше три їх типи: вхідний, прихований та вихідний.
 
@@ -603,8 +607,582 @@ $L(\mathbf{w}) = \frac{1}{4} \sum_{i=1}^{4} (y_i - \hat{y}_i)^2$`,
   title: "6. Список літератури",
   full: true,
 )
-//
+
+#pagebreak()
+#show raw: set text(size: 9pt)
+#align(center)[
+  = ДОДАТОК А
+]
+Вихідний код модуля нейронної мережі (`neural_network.py`)
+```python
+import numpy as np
+
+class MLP:
+    """
+    Багатошаровий перцептрон (MLP) для задачі XOR.
+    Архітектура: 2 -> 4 -> 1, активація сигмоїда.
+    """
+
+    def __init__(self, seed=42):
+        np.random.seed(seed)
+        # Ваги: W1 (2x4), b1 (4,), W2 (4x1), b2 (1,)
+        self.W1 = np.random.randn(2, 4) * 0.5
+        self.b1 = np.zeros(4)
+        self.W2 = np.random.randn(4, 1) * 0.5
+        self.b2 = np.zeros(1)
+
+    def sigmoid(self, z):
+        """Сигмоїдна функція активації: σ(z) = 1 / (1 + e^(-z))"""
+        return 1.0 / (1.0 + np.exp(-np.clip(z, -500, 500)))
+
+    def sigmoid_deriv(self, a):
+        """Похідна сигмоїди: σ'(z) = σ(z)·(1 - σ(z))"""
+        return a * (1.0 - a)
+
+    def forward(self, X):
+        """
+        Прямий прохід (Forward Pass).
+        X: (n_samples, 2) -> повертає y_hat: (n_samples, 1)
+        """
+        self.X  = X
+        self.Z1 = X @ self.W1 + self.b1        # (n, 4)
+        self.A1 = self.sigmoid(self.Z1)         # (n, 4)
+        self.Z2 = self.A1 @ self.W2 + self.b2  # (n, 1)
+        self.A2 = self.sigmoid(self.Z2)         # (n, 1)
+        return self.A2
+
+    def loss(self, y_hat, y):
+        """MSE функція втрат: L = (1/n) * Σ(y - ŷ)²"""
+        return np.mean((y - y_hat) ** 2)
+
+    def backward(self, y_hat, y):
+        """
+        Зворотне поширення помилки (Backpropagation).
+        Повертає словник градієнтів: dW1, db1, dW2, db2
+        """
+        n = y.shape[0]
+
+        # Похідна втрат по A2
+        dL_dA2 = -2 / n * (y - y_hat)              # (n, 1)
+        dA2_dZ2 = self.sigmoid_deriv(self.A2)      # (n, 1)
+        dZ2 = dL_dA2 * dA2_dZ2                     # (n, 1)
+
+        dW2 = self.A1.T @ dZ2                      # (4, 1)
+        db2 = dZ2.sum(axis=0)                     # (1,)
+
+        # Зворотне поширення до прихованого шару
+        dA1 = dZ2 @ self.W2.T                      # (n, 4)
+        dZ1 = dA1 * self.sigmoid_deriv(self.A1)   # (n, 4)
+
+        dW1 = self.X.T @ dZ1                       # (2, 4)
+        db1 = dZ1.sum(axis=0)                     # (4,)
+
+        return {'dW1': dW1, 'db1': db1,
+                'dW2': dW2, 'db2': db2}
+
+    def get_params(self):
+        """Повертає всі параметри як один вектор (для методу Ньютона)"""
+        return np.concatenate([
+            self.W1.ravel(), self.b1,
+            self.W2.ravel(), self.b2
+        ])
+
+    def set_params(self, params):
+        """Встановлює параметри з вектора (для методу Ньютона)"""
+        i = 0
+        self.W1 = params[i:i+8].reshape(2, 4);  i += 8
+        self.b1 = params[i:i+4];              i += 4
+        self.W2 = params[i:i+4].reshape(4, 1); i += 4
+        self.b2 = params[i:i+1]
+```
+
 #pagebreak()
 #align(center)[
-  = ДОДАТКИ
+  = ДОДАТОК Б 
 ]
+Вихідний код модуля оптимізації (`optimizers.py`)
+```python
+import numpy as np
+from scipy.optimize import minimize_scalar
+import time
+
+
+class Optimizers:
+
+    # ------------------------------------------------------------------ #
+    #  1. Градієнтний спуск з фіксованим кроком                          #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def gradient_descent(net, X, y, lr=1.0, max_iter=5000, tol=1e-6, verbose=False):
+        """
+        Градієнтний спуск:
+            θ_{k+1} = θ_k − lr · ∇L(θ_k)
+
+        Крок lr фіксований на всіх ітераціях.
+        """
+        history = []
+        start_time = time.time()
+
+        for i in range(max_iter):
+            y_hat = net.forward(X)
+            loss = net.loss(y_hat, y)
+            history.append(float(loss))
+
+            if loss < tol:
+                break
+
+            grads = net.backward(y_hat, y)
+            net.W1 -= lr * grads['dW1']
+            net.b1 -= lr * grads['db1']
+            net.W2 -= lr * grads['dW2']
+            net.b2 -= lr * grads['db2']
+
+            if verbose and i % 200 == 0:
+                print(f"  GD Iter {i:4d} | Loss: {loss:.6f}")
+
+        elapsed = time.time() - start_time
+        return history, i + 1, elapsed, lr
+
+    # ------------------------------------------------------------------ #
+    #  2. Метод найшвидшого спуску (точний line search)                  #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def steepest_descent(net, X, y, max_iter=200, tol=1e-6, verbose=False):
+        """
+        Метод найшвидшого спуску:
+            α_k = argmin_{α≥0} L(θ_k − α · ∇L(θ_k))
+            θ_{k+1} = θ_k − α_k · ∇L(θ_k)
+
+        Оптимальний крок α шукається точним golden-section search.
+        """
+        history = []
+        start_time = time.time()
+
+        def line_search_objective(alpha, params_before, grads):
+            """Обчислює L при кроці alpha від поточної точки."""
+            candidate = params_before - alpha * grads
+            net.set_params(candidate)
+            loss = float(net.loss(net.forward(X), y))
+            return loss
+
+        for i in range(max_iter):
+            y_hat = net.forward(X)
+            current_loss = float(net.loss(y_hat, y))
+            history.append(current_loss)
+
+            if current_loss < tol:
+                break
+
+            grads_dict = net.backward(y_hat, y)
+
+            # Зберігаємо поточні параметри і градієнт як вектори
+            params_now = net.get_params().copy()
+            g = np.concatenate([
+                grads_dict['dW1'].ravel(),
+                grads_dict['db1'],
+                grads_dict['dW2'].ravel(),
+                grads_dict['db2']
+            ])
+
+            # Точний пошук α* ∈ [0, 10]
+            res = minimize_scalar(
+                lambda alpha: line_search_objective(alpha, params_now, g),
+                bounds=(0, 10), method='bounded', options={'xatol': 1e-8}
+            )
+            alpha_opt = res.x
+
+            # Застосовуємо оптимальний крок
+            net.set_params(params_now - alpha_opt * g)
+
+            if verbose and i % 10 == 0:
+                print(f"  Steepest Iter {i:3d} | Loss: {current_loss:.6f} | α*: {alpha_opt:.5f}")
+
+        elapsed = time.time() - start_time
+        return history, i + 1, elapsed
+
+    # ------------------------------------------------------------------ #
+    #  3. Метод Ньютона з чисельною матрицею Гесса                       #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def newton_method(net, X, y, max_iter=50, tol=1e-6,
+                      eps=1e-5, lambda_init=1e-3, verbose=False):
+        """
+        Метод Ньютона:
+            H(θ_k) · d_k = ∇L(θ_k)
+            θ_{k+1} = θ_k − d_k
+
+        Матриця Гесса H обчислюється чисельно методом скінченних різниць
+        (central differences), розмір 17×17.
+
+        Levenberg–Marquardt демпфування:
+            (H + λI) · d = g
+        забезпечує збіжність навіть коли H не є позитивно визначеною.
+        λ адаптивно зменшується при успішних кроках і збільшується при невдалих.
+        """
+        history = []
+        start_time = time.time()
+        lambda_lm = lambda_init     # початковий коефіцієнт демпфування
+
+        def compute_loss(params):
+            """Допоміжна: обчислює скаляр loss для вектора параметрів."""
+            net.set_params(params)
+            return float(net.loss(net.forward(X), y))
+
+        def compute_gradient(params):
+            """
+            Градієнт методом центральних різниць:
+                ∂L/∂θ_i ≈ [L(θ + ε·eᵢ) − L(θ − ε·eᵢ)] / (2ε)
+            Точніший за forward differences: похибка O(ε²) замість O(ε).
+            """
+            n = len(params)
+            grad = np.zeros(n)
+            for j in range(n):
+                p_plus  = params.copy(); p_plus[j]  += eps
+                p_minus = params.copy(); p_minus[j] -= eps
+                grad[j] = (compute_loss(p_plus) - compute_loss(p_minus)) / (2 * eps)
+            return grad
+
+        def compute_hessian(params, grad):
+            """
+            Матриця Гесса методом центральних різниць по градієнту:
+                ∂²L/∂θ_i∂θ_j ≈ [∇L(θ + ε·eⱼ) − ∇L(θ − ε·eⱼ)]_i / (2ε)
+
+            Розмір: (17, 17).  Симетризуємо H = (H + Hᵀ)/2 для числової стійкості.
+            """
+            n = len(params)
+            H = np.zeros((n, n))
+            for j in range(n):
+                p_plus  = params.copy(); p_plus[j]  += eps
+                p_minus = params.copy(); p_minus[j] -= eps
+                g_plus  = compute_gradient(p_plus)
+                g_minus = compute_gradient(p_minus)
+                H[:, j] = (g_plus - g_minus) / (2 * eps)
+            H = (H + H.T) / 2          # гарантуємо симетрію
+            return H
+
+        for i in range(max_iter):
+            params = net.get_params().copy()
+            current_loss = compute_loss(params)
+            history.append(current_loss)
+
+            if current_loss < tol:
+                break
+
+            # 1. Градієнт (аналітичний через backprop — швидше і точніше)
+            y_hat = net.forward(X)
+            grads_dict = net.backward(y_hat, y)
+            g = np.concatenate([
+                grads_dict['dW1'].ravel(),
+                grads_dict['db1'],
+                grads_dict['dW2'].ravel(),
+                grads_dict['db2']
+            ])
+
+            # 2. Матриця Гесса (чисельно)
+            H = compute_hessian(params, g)
+
+            # 3. Levenberg–Marquardt: розв'язуємо (H + λI)·d = g
+            #    Адаптивно підбираємо λ, щоб крок дійсно зменшував loss
+            step_accepted = False
+            for _ in range(10):                          # макс. 10 спроб
+                H_reg = H + lambda_lm * np.eye(len(g))
+                try:
+                    d = np.linalg.solve(H_reg, g)        # Newton direction
+                except np.linalg.LinAlgError:
+                    lambda_lm *= 10
+                    continue
+
+                new_params = params - d
+                new_loss   = compute_loss(new_params)
+
+                if new_loss < current_loss:              # крок успішний
+                    net.set_params(new_params)
+                    lambda_lm = max(lambda_lm / 3, 1e-10)   # зменшуємо λ
+                    step_accepted = True
+                    break
+                else:
+                    lambda_lm = min(lambda_lm * 10, 1e10)   # збільшуємо λ
+
+            if not step_accepted:
+                # fallback: маленький градієнтний крок
+                net.set_params(params - 1e-3 * g)
+
+            if verbose:
+                eigs = np.linalg.eigvalsh(H)
+                status = "✓" if step_accepted else "↩ fallback"
+                print(f"  Newton Iter {i:2d} | Loss: {current_loss:.6f} | "
+                      f"λ: {lambda_lm:.2e} | "
+                      f"min(eig(H)): {eigs.min():.3e} | {status}")
+
+        elapsed = time.time() - start_time
+        return history, i + 1, elapsed
+```
+
+#pagebreak()
+#align(center)[
+  = ДОДАТОК В 
+]
+Вихідний код модуля даних (`xor_data.py`)
+```python
+import numpy as np
+
+# Датасет XOR: 4 приклади, 2 ознаки
+X = np.array([
+    [0, 0],
+    [0, 1],
+    [1, 0],
+    [1, 1],
+], dtype=float)
+
+y = np.array([
+    [0],  # 0 XOR 0 = 0
+    [1],  # 0 XOR 1 = 1
+    [1],  # 1 XOR 0 = 1
+    [0],  # 1 XOR 1 = 0
+], dtype=float)
+```
+
+#pagebreak()
+#align(center)[
+  = ДОДАТОК Г 
+]
+Програма для проведення порівняльних експериментів (`run_experiments.py`)
+```python
+import sys
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+
+from neural_network import MLP
+from xor_data import X, y
+from optimizers import Optimizers
+
+# ─────────────────────────────────────────────
+#  Запуск трьох методів
+# ─────────────────────────────────────────────
+print("=" * 60)
+print("  ПОРІВНЯННЯ МЕТОДІВ ОПТИМІЗАЦІЇ  (XOR, MLP 2→4→1)")
+print("=" * 60)
+
+print("\n[1/3] Gradient Descent  (lr=1.0, max_iter=2000) ...")
+net_gd = MLP(seed=42)
+hist_gd, iters_gd, t_gd, lr = Optimizers.gradient_descent(
+    net_gd, X, y, lr=1.0, max_iter=2000, tol=1e-6, verbose=False)
+print(f"      → {iters_gd} ітерацій | {t_gd:.3f}с | loss={hist_gd[-1]:.2e}")
+
+print("\n[2/3] Steepest Descent  (line search, max_iter=300) ...")
+net_sd = MLP(seed=42)
+hist_sd, iters_sd, t_sd = Optimizers.steepest_descent(
+    net_sd, X, y, max_iter=300, tol=1e-6, verbose=False)
+print(f"      → {iters_sd} ітерацій | {t_sd:.3f}с | loss={hist_sd[-1]:.2e}")
+
+print("\n[3/3] Newton Method     (17×17 Hessian + LM, max_iter=50) ...")
+net_nt = MLP(seed=42)
+hist_nt, iters_nt, t_nt = Optimizers.newton_method(
+    net_nt, X, y, max_iter=50, tol=1e-6, eps=1e-5, verbose=False)
+print(f"      → {iters_nt} ітерацій | {t_nt:.3f}с | loss={hist_nt[-1]:.2e}")
+
+# ─────────────────────────────────────────────
+#  Підготовка даних для графіків
+# ─────────────────────────────────────────────
+colors = {
+    'gd':  '#E74C3C',
+    'sd':  '#2ECC71',
+    'nt':  '#3498DB',
+}
+
+labels = {
+    'gd': f'Градієнтний спуск (lr={lr})',
+    'sd': 'Метод найшвидшого спуску',
+    'nt': 'Метод Ньютона',
+}
+
+fig = plt.figure(figsize=(16, 13))
+fig.patch.set_facecolor('#F8F9FA')
+
+gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.38, wspace=0.30, left=0.07, right=0.97, top=0.91, bottom=0.07)
+
+ax1 = fig.add_subplot(gs[0, :])
+ax2 = fig.add_subplot(gs[1, 0])
+ax3 = fig.add_subplot(gs[1, 1])
+
+for ax in [ax1, ax2, ax3]:
+    ax.set_facecolor('#FFFFFF')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(True, linestyle='--', alpha=0.4, color='#AAAAAA')
+
+ax1.plot(hist_gd, color=colors['gd'], lw=2.2, label=labels['gd'])
+ax1.plot(hist_sd, color=colors['sd'], lw=2.2, label=labels['sd'])
+ax1.plot(hist_nt, color=colors['nt'], lw=2.5, label=labels['nt'], marker='o', markersize=4, markevery=3)
+ax1.set_yscale('log')
+ax1.set_xlabel('Ітерація')
+ax1.set_ylabel('Функція втрат L (log)')
+ax1.set_title('Збіжність методів оптимізації на задачі XOR', fontsize=13, fontweight='bold', pad=10)
+ax1.legend()
+
+methods  = ['GD', 'Steepest', 'Newton']
+iters_   = [iters_gd, iters_sd, iters_nt]
+ax2.bar(methods, iters_, color=[colors['gd'], colors['sd'], colors['nt']], width=0.5)
+ax2.set_ylabel('Кількість ітерацій')
+ax2.set_title('Ітерацій до зупинки', fontsize=12, fontweight='bold')
+
+times_  = [t_gd, t_sd, t_nt]
+losses_ = [hist_gd[-1], hist_sd[-1], hist_nt[-1]]
+for t, l, col, lbl in zip(times_, losses_, [colors['gd'], colors['sd'], colors['nt']], ['GD', 'SD', 'NT']):
+    ax3.scatter(t, l, color=col, s=180, zorder=5)
+    ax3.annotate(lbl, xy=(t, l), xytext=(8, 4), textcoords='offset points', color=col, fontweight='bold')
+ax3.set_yscale('log')
+ax3.set_xlabel('Час виконання (с)')
+ax3.set_ylabel('Фінальний Loss (log)')
+ax3.set_title('Час виконання vs Якість результату', fontsize=12, fontweight='bold')
+
+plt.savefig('convergence_plots.png', dpi=150)
+```
+
+#pagebreak()
+#align(center)[
+  = ДОДАТОК Д
+]
+Програма візуалізації результатів (`claude_full.py`)
+```python
+import tkinter as tk
+from tkinter import ttk
+import numpy as np
+import matplotlib
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import time
+
+BG, PANEL, BORDER = "#0d1117", "#161b22", "#30363d"
+ACCENT1, ACCENT2, ACCENT3 = "#58a6ff", "#3fb950", "#f78166"
+FG, FG_DIM = "#e6edf3", "#8b949e"
+
+def sigmoid(x): return 1.0 / (1.0 + np.exp(-np.clip(x, -500, 500)))
+def sigmoid_d(x): s = sigmoid(x); return s * (1 - s)
+
+X_XOR = np.array([[0,0],[0,1],[1,0],[1,1]], dtype=float)
+Y_XOR = np.array([[0],[1],[1],[0]], dtype=float)
+
+class MLP:
+    def __init__(self, seed=42):
+        rng = np.random.default_rng(seed)
+        self.W1 = rng.normal(0, 0.5, (4, 2)); self.b1 = np.zeros((4, 1))
+        self.W2 = rng.normal(0, 0.5, (1, 4)); self.b2 = np.zeros((1, 1))
+    def forward(self, X):
+        self.X = X.T; self.Z1 = self.W1 @ self.X + self.b1; self.A1 = sigmoid(self.Z1)
+        self.Z2 = self.W2 @ self.A1 + self.b2; self.A2 = sigmoid(self.Z2); return self.A2
+    def loss(self, X, y): return float(np.mean((y.T - self.forward(X)) ** 2))
+    def backward(self, y):
+        n = y.shape[0]; dZ2 = (self.A2 - y.T) * sigmoid_d(self.Z2) * (2/n)
+        dW2 = dZ2 @ self.A1.T; db2 = np.sum(dZ2, axis=1, keepdims=True)
+        dA1 = self.W2.T @ dZ2; dZ1 = dA1 * sigmoid_d(self.Z1)
+        dW1 = dZ1 @ self.X.T; db1 = np.sum(dZ1, axis=1, keepdims=True)
+        return dW1, db1, dW2, db2
+    def get_params(self): return np.concatenate([self.W1.ravel(), self.b1.ravel(), self.W2.ravel(), self.b2.ravel()])
+    def set_params(self, p):
+        i = 0; self.W1 = p[i:i+8].reshape(4,2); i += 8; self.b1 = p[i:i+4].reshape(4,1); i += 4
+        self.W2 = p[i:i+4].reshape(1,4); i += 4; self.b2 = p[i:i+1].reshape(1,1)
+    def grad_vec(self): self.forward(X_XOR); dW1, db1, dW2, db2 = self.backward(Y_XOR); return np.concatenate([dW1.ravel(), db1.ravel(), dW2.ravel(), db2.ravel()])
+    def accuracy(self): return float(np.mean((self.forward(X_XOR) > 0.5).astype(int).T == Y_XOR)) * 100
+
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Градієнтні методи оптимізації · XOR MLP")
+        self.configure(bg=BG)
+        self._build_ui()
+
+    def _build_ui(self):
+        top = tk.Frame(self, bg=BG, pady=10)
+        top.pack(fill="x", padx=20)
+        tk.Label(top, text="Градієнтні методи оптимізації", bg=BG, fg=FG, font=("Courier New", 18, "bold")).pack(side="left")
+        self._fig = plt.Figure(figsize=(14,7), facecolor=BG); canvas = FigureCanvasTkAgg(self._fig, master=self)
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=20, pady=(0,10))
+
+if __name__ == "__main__":
+    app = App(); app.mainloop()
+```
+
+#pagebreak()
+#align(center)[
+  = ДОДАТОК Е
+]
+Тестування методів оптимізації (`test_optimizers.py`)
+```python
+import sys
+from neural_network import MLP
+from xor_data import X, y
+from optimizers import Optimizers
+import numpy as np
+
+print("=" * 55)
+print("  ТЕСТ МЕТОДІВ ОПТИМІЗАЦІЇ (XOR)")
+print("=" * 55)
+
+print("\n[1] Gradient Descent (lr=1.0, max_iter=2000)")
+net = MLP(seed=42)
+hist_gd, iters_gd, t_gd, lr = Optimizers.gradient_descent(net, X, y, lr=1.0, max_iter=2000, tol=1e-6, verbose=True)
+print(f"    → {iters_gd} ітерацій | час: {t_gd:.3f}с | loss: {hist_gd[-1]:.8f}")
+
+print("\n[2] Steepest Descent (точний line search)")
+net = MLP(seed=42)
+hist_sd, iters_sd, t_sd = Optimizers.steepest_descent(net, X, y, max_iter=200, tol=1e-6, verbose=True)
+print(f"    → {iters_sd} ітерацій | час: {t_sd:.3f}с | loss: {hist_sd[-1]:.8f}")
+
+print("\n[3] Newton Method (17×17 Hessian + LM damping)")
+net = MLP(seed=42)
+hist_nt, iters_nt, t_nt = Optimizers.newton_method(net, X, y, max_iter=50, tol=1e-6, eps=1e-5, verbose=True)
+print(f"    → {iters_nt} ітерацій | час: {t_nt:.3f}с | loss: {hist_nt[-1]:.8f}")
+```
+
+#pagebreak()
+#align(center)[
+  = ДОДАТОК Ж 
+]
+Тестування прямого проходу (`test_forward.py`)
+```python
+from neural_network import MLP
+from xor_data import X, y
+
+net = MLP(seed=42)
+y_hat = net.forward(X); loss_val = net.loss(y_hat, y)
+print(f"Initial loss: {loss_val:.4f}\nPredictions:\n{y_hat.round(3)}")
+grads = net.backward(y_hat, y)
+print(f"\ndW1 shape: {grads['dW1'].shape}\ndW2 shape: {grads['dW2'].shape}")
+params = net.get_params(); print(f"\nTotal params: {len(params)}")
+```
+
+#pagebreak()
+#align(center)[
+  = ДОДАТОК З 
+]
+Додаткові скрипти для ілюстрацій (`diference.py`)
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize_scalar
+
+def loss(w): x, y = w; return 0.1*(x**2) + 2*(y**2) + 0.5*np.sin(3*x) + 0.3*np.cos(4*y)
+def grad(w): x, y = w; gx = 0.2*x + 1.5*np.cos(3*x); gy = 4*y - 1.2*np.sin(4*y); return np.array([gx, gy])
+
+def steepest_descent(w0, max_iter=12):
+    path = [w0.copy()]; w = w0.copy()
+    for i in range(max_iter):
+        g = grad(w); res = minimize_scalar(lambda eta: loss(w - eta * g), bracket=(0, 0.01, 2.0), method='brent')
+        w = w - res.x * g; path.append(w.copy())
+    return np.array(path)
+
+def gradient_descent(w0, eta=0.08, max_iter=25):
+    path = [w0.copy()]; w = w0.copy()
+    for _ in range(max_iter): w = w - eta * grad(w); path.append(w.copy())
+    return np.array(path)
+
+if __name__ == "__main__":
+    w0 = np.array([-2.8, 2.6]); p_gd = gradient_descent(w0); p_sd = steepest_descent(w0)
+    plt.plot(p_gd[:,0], p_gd[:,1], 'r-o', label='GD'); plt.plot(p_sd[:,0], p_sd[:,1], 'g-o', label='SD'); plt.legend(); plt.show()
+```
