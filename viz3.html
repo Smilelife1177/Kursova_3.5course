@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Метод Ньютона (Newton's Method)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        h1 { margin-bottom: 5px; color: #a855f7; }
+        p { color: #94a3b8; margin-bottom: 20px; }
+
+        .container {
+            position: relative;
+            width: 600px;
+            height: 400px;
+            background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+            border: 2px solid #a855f7;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+        }
+
+        .contour {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 1px solid rgba(168, 85, 247, 0.2);
+            border-radius: 50%;
+        }
+
+        #ball {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: #a855f7;
+            border-radius: 50%;
+            box-shadow: 0 0 20px #a855f7, inset 0 0 8px white;
+            z-index: 10;
+            transition: all 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform: translate(-50%, -50%);
+        }
+
+        .controls {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background-color: #a855f7;
+            color: white;
+        }
+        button:hover { background-color: #c084fc; transform: translateY(-2px); }
+        button:disabled { background-color: #475569; cursor: not-allowed; transform: none; }
+        
+        #reset-btn { background-color: #475569; color: white; }
+
+        .status-panel {
+            margin-top: 20px;
+            padding: 15px;
+            background: #1e293b;
+            border-radius: 8px;
+            min-width: 450px;
+            text-align: center;
+            border-bottom: 4px solid #a855f7;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .hessian-info { color: #a855f7; font-weight: bold; }
+
+        .target {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 12px;
+            height: 12px;
+            background: #a855f7;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 25px #a855f7;
+        }
+
+        @keyframes scan {
+            0% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.5); opacity: 0.1; }
+            100% { transform: scale(1); opacity: 0.5; }
+        }
+        .scanning {
+            position: absolute;
+            border: 2px solid #a855f7;
+            border-radius: 50%;
+            animation: scan 1s infinite;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Метод Ньютона</h1>
+    <p>Використання другої похідної (Гессіана) для миттєвої збіжності</p>
+
+    <div class="container" id="canvas">
+        <div id="scan-ring" class="scanning"></div>
+        <div class="target"></div>
+        <div id="ball"></div>
+    </div>
+
+    <div class="status-panel">
+        <div id="status-text">Метод Ньютона: Обчислюємо кривизну поверхні...</div>
+        <div class="stats">
+            <div>Крок: <span id="step-count">0</span></div>
+            <div>Інфо: <span class="hessian-info">Hessian Matrix H⁻¹</span></div>
+            <div>Статус: <span id="convergence" style="color: #22c55e">Очікування</span></div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="step-btn">Обчислити крок Ньютона</button>
+        <button id="reset-btn">Скинути</button>
+    </div>
+
+    <script>
+        const ball = document.getElementById('ball');
+        const scanRing = document.getElementById('scan-ring');
+        const statusText = document.getElementById('status-text');
+        const stepDisplay = document.getElementById('step-count');
+        const convDisplay = document.getElementById('convergence');
+        
+        let posX = 80;
+        let posY = 320;
+        let steps = 0;
+        const targetX = 300;
+        const targetY = 200;
+
+        for(let i = 1; i <= 6; i++) {
+            const contour = document.createElement('div');
+            contour.className = 'contour';
+            contour.style.width = (i * 100) + 'px';
+            contour.style.height = (i * 100) + 'px';
+            canvas.appendChild(contour);
+        }
+
+        function updateUI() {
+            ball.style.left = posX + 'px';
+            ball.style.top = posY + 'px';
+            
+            if (Math.abs(posX - targetX) < 5 && Math.abs(posY - targetY) < 5) {
+                statusText.innerText = "🚀 Суперлінійна збіжність! Мінімум знайдено за лічені кроки.";
+                convDisplay.innerText = "Збіжність!";
+                document.getElementById('step-btn').disabled = true;
+            }
+        }
+
+        function performNewtonStep() {
+            statusText.innerText = "🧮 Обчислюємо зворотний Гессіан H⁻¹...";
+            scanRing.style.display = 'block';
+            scanRing.style.left = (posX - 50) + 'px';
+            scanRing.style.top = (posY - 50) + 'px';
+            scanRing.style.width = '100px';
+            scanRing.style.height = '100px';
+
+            setTimeout(() => {
+                scanRing.style.display = 'none';
+                
+                // Метод Ньютона на квадратичній поверхні робить крок прямо в центр
+                // або дуже близько до нього за 1-2 ітерації
+                if (steps === 0) {
+                    posX = targetX - (targetX - posX) * 0.1;
+                    posY = targetY - (targetY - posY) * 0.1;
+                } else {
+                    posX = targetX;
+                    posY = targetY;
+                }
+                
+                steps++;
+                stepDisplay.innerText = steps;
+                updateUI();
+                statusText.innerText = `✅ Крок Ньютона виконано. Використано локальну кривизну.`;
+            }, 800);
+        }
+
+        document.getElementById('step-btn').addEventListener('click', performNewtonStep);
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            posX = 80; posY = 320; steps = 0;
+            stepDisplay.innerText = "0";
+            convDisplay.innerText = "Очікування";
+            document.getElementById('step-btn').disabled = false;
+            updateUI();
+        });
+
+        updateUI();
+    </script>
+</body>
+</html>

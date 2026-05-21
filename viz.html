@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анімація Backpropagation</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow-x: hidden;
+        }
+        h1 { margin-bottom: 10px; color: #38bdf8; text-align: center; }
+        .controls { display: flex; gap: 15px; margin-bottom: 20px; }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #btn-forward { background-color: #22c55e; color: white; }
+        #btn-backward { background-color: #ef4444; color: white; }
+        button:disabled { background-color: #475569 !important; opacity: 0.5; cursor: not-allowed; }
+        
+        .status-box {
+            background-color: #1e293b;
+            padding: 15px 25px;
+            border-radius: 8px;
+            border-left: 5px solid #38bdf8;
+            margin-bottom: 30px;
+            font-size: 18px;
+            min-width: 300px;
+            text-align: center;
+        }
+
+        .network-container {
+            position: relative;
+            width: 600px;
+            height: 300px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 50px;
+        }
+
+        /* Шари та нейрони */
+        .layer { display: flex; flex-direction: column; gap: 40px; z-index: 2; }
+        .neuron {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background-color: #1e293b;
+            border: 3px solid #64748b;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+            transition: all 0.5s ease;
+            position: relative;
+            box-shadow: 0 0 15px rgba(0,0,0,0.5);
+        }
+        .neuron span { font-size: 10px; color: #94a3b8; font-weight: normal; }
+
+        /* Активні стани нейронів */
+        .neuron.active-forward { border-color: #22c55e; background-color: #14532d; box-shadow: 0 0 20px #22c55e; }
+        .neuron.active-backward { border-color: #ef4444; background-color: #7f1d1d; box-shadow: 0 0 20px #ef4444; }
+
+        /* Зв'язки (лінії) */
+        svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            pointer-events: none;
+        }
+        line { stroke: #475569; stroke-width: 2; transition: stroke 0.5s, stroke-width: 0.5s; }
+        line.active-forward { stroke: #22c55e; stroke-width: 4; }
+        line.active-backward { stroke: #ef4444; stroke-width: 4; }
+
+        /* Імпульси (сигнали) */
+        .pulse {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            z-index: 3;
+            display: none;
+        }
+        .pulse-forward { background-color: #22c55e; box-shadow: 0 0 10px #22c55e; }
+        .pulse-backward { background-color: #ef4444; box-shadow: 0 0 10px #ef4444; }
+
+        /* Анімація оновлення ваг */
+        @keyframes update-pulse {
+            0% { transform: scale(1); border-color: #38bdf8; box-shadow: 0 0 15px #38bdf8; }
+            50% { transform: scale(1.2); border-color: #38bdf8; box-shadow: 0 0 35px #38bdf8; }
+            100% { transform: scale(1); border-color: #38bdf8; box-shadow: 0 0 15px #38bdf8; }
+        }
+        .neuron.updating {
+            animation: update-pulse 0.6s ease-in-out 2;
+            z-index: 10;
+        }
+        .weight-label {
+            color: #38bdf8;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Візуалізація роботи нейромережі</h1>
+    <div class="status-box" id="status-text">Натисніть "Крок уперед", щоб подати сигнал</div>
+
+    <div class="controls">
+        <button id="btn-forward">1. Крок уперед (Прогноз)</button>
+        <button id="btn-backward" disabled>2. Крок назад (Виправлення)</button>
+    </div>
+
+    <div class="network-container" id="network">
+        <svg id="svg-connections"></svg>
+        
+        <!-- Вхідний шар -->
+        <div class="layer">
+            <div class="neuron" id="n1">Вхід 1<span>Дані</span></div>
+            <div class="neuron" id="n2">Вхід 2<span>Дані</span></div>
+        </div>
+        
+        <!-- Прихований шар -->
+        <div class="layer">
+            <div class="neuron" id="n3">H1<span>Вага: 0.5</span></div>
+            <div class="neuron" id="n4">H2<span>Вага: 0.3</span></div>
+        </div>
+        
+        <!-- Вихідний шар -->
+        <div class="layer">
+            <div class="neuron" id="n5">Вихід<span>Помилка</span></div>
+        </div>
+
+        <!-- Елементи імпульсів -->
+        <div id="p1" class="pulse pulse-forward"></div>
+        <div id="p2" class="pulse pulse-backward"></div>
+    </div>
+
+    <script>
+        const btnForward = document.getElementById('btn-forward');
+        const btnBackward = document.getElementById('btn-backward');
+        const statusText = document.getElementById('status-text');
+
+        // Координати нейронів для малювання ліній
+        const neurons = {
+            n1: {x: 80, y: 90}, n2: {x: 80, y: 210},
+            n3: {x: 300, y: 90}, n4: {x: 300, y: 210},
+            n5: {x: 520, y: 150}
+        };
+
+        const connections = [
+            ['n1', 'n3'], ['n1', 'n4'],
+            ['n2', 'n3'], ['n2', 'n4'],
+            ['n3', 'n5'], ['n4', 'n5']
+        ];
+
+        // Малюємо лінії зв'язків
+        const svg = document.getElementById('svg-connections');
+        connections.forEach(([from, to], index) => {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', neurons[from].x);
+            line.setAttribute('y1', neurons[from].y);
+            line.setAttribute('x2', neurons[to].x);
+            line.setAttribute('y2', neurons[to].y);
+            line.setAttribute('id', `l-${from}-${to}`);
+            svg.appendChild(line);
+        });
+
+        // Функція для анімації руху кульки (імпульсу)
+        function animatePulse(pulseId, fromId, toId, type, duration, callback) {
+            const pulse = document.getElementById(pulseId);
+            pulse.className = `pulse pulse-${type}`;
+            pulse.style.display = 'block';
+            
+            const start = neurons[fromId];
+            const end = neurons[toId];
+            
+            let startTime = null;
+
+            function step(timestamp) {
+                if (!startTime) startTime = timestamp;
+                const progress = Math.min((timestamp - startTime) / duration, 1);
+                
+                const currentX = start.x + (end.x - start.x) * progress;
+                const currentY = start.y + (end.y - start.y) * progress;
+                
+                pulse.style.left = `${currentX - 6}px`;
+                pulse.style.top = `${currentY - 6}px`;
+
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    pulse.style.display = 'none';
+                    if (callback) callback();
+                }
+            }
+            requestAnimationFrame(step);
+        }
+
+        // --- КРОК УПЕРЕД ---
+        btnForward.addEventListener('click', () => {
+            btnForward.disabled = true;
+            statusText.innerText = "🟢 Крок уперед: Сигнал іде від входів до виходу...";
+            statusText.style.borderColor = "#22c55e";
+
+            // Активуємо вхідні нейрони
+            document.getElementById('n1').classList.add('active-forward');
+            document.getElementById('n2').classList.add('active-forward');
+
+            // Анімуємо імпульси до прихованого шару
+            setTimeout(() => {
+                connections.slice(0, 4).forEach(([from, to]) => {
+                    document.getElementById(`l-${from}-${to}`).classList.add('active-forward');
+                });
+                animatePulse('p1', 'n1', 'n3', 'forward', 800);
+                animatePulse('p2', 'n2', 'n4', 'forward', 800, () => {
+                    
+                    // Активуємо прихований шар
+                    document.getElementById('n3').classList.add('active-forward');
+                    document.getElementById('n4').classList.add('active-forward');
+
+                    // Анімуємо до виходу
+                    setTimeout(() => {
+                        connections.slice(4, 6).forEach(([from, to]) => {
+                            document.getElementById(`l-${from}-${to}`).classList.add('active-forward');
+                        });
+                        animatePulse('p1', 'n3', 'n5', 'forward', 800);
+                        animatePulse('p2', 'n4', 'n5', 'forward', 800, () => {
+                            
+                            // Вихідний нейрон видає помилку
+                            const output = document.getElementById('n5');
+                            output.classList.add('active-forward');
+                            output.innerHTML = "Вихід<span style='color:#ef4444; font-weight:bold;'>Помилка!</span>";
+                            
+                            statusText.innerText = "❌ Отримано помилку! Мережа помилилася в прогнозі. Потрібно виправляти.";
+                            btnBackward.disabled = false;
+                        });
+                    }, 400);
+                });
+            }, 300);
+        });
+
+        // --- КРОК НАЗАД (BACKPROPAGATION) ---
+        btnBackward.addEventListener('click', () => {
+            btnBackward.disabled = true;
+            statusText.innerText = "🔴 Зворотне поширення: Помилка повертається назад...";
+            statusText.style.borderColor = "#ef4444";
+
+            // Очищаємо зелені активації, перемикаємо вихід на червоний
+            document.querySelectorAll('.neuron, line').forEach(el => el.classList.remove('active-forward'));
+            document.getElementById('n5').classList.add('active-backward');
+
+            // Сигнал помилки йде назад до прихованого шару
+            setTimeout(() => {
+                connections.slice(4, 6).forEach(([from, to]) => {
+                    document.getElementById(`l-${from}-${to}`).classList.add('active-backward');
+                });
+                animatePulse('p1', 'n5', 'n3', 'backward', 800);
+                animatePulse('p2', 'n5', 'n4', 'backward', 800, () => {
+                    
+                    // Приховані нейрони змінюють ваги
+                    const h1 = document.getElementById('n3');
+                    const h2 = document.getElementById('n4');
+                    
+                    statusText.innerText = "⚙️ Оптимізація: Коригуємо ваги прихованого шару...";
+                    statusText.style.borderColor = "#38bdf8";
+                    
+                    h1.classList.add('updating');
+                    h2.classList.add('updating');
+                    
+                    setTimeout(() => {
+                        h1.innerHTML = "H1<span class='weight-label'>Вага: 0.48 (Δ-0.02)</span>";
+                        h2.innerHTML = "H2<span class='weight-label'>Вага: 0.25 (Δ-0.05)</span>";
+                        
+                        // Сигнал іде до перших шарів
+                        setTimeout(() => {
+                            h1.classList.remove('updating');
+                            h2.classList.remove('updating');
+                            h1.classList.add('active-backward');
+                            h2.classList.add('active-backward');
+                            
+                            connections.slice(0, 4).forEach(([from, to]) => {
+                                document.getElementById(`l-${from}-${to}`).classList.add('active-backward');
+                            });
+                            animatePulse('p1', 'n3', 'n1', 'backward', 800);
+                            animatePulse('p2', 'n4', 'n2', 'backward', 800, () => {
+                                document.getElementById('n1').classList.add('active-backward');
+                                document.getElementById('n2').classList.add('active-backward');
+                                
+                                statusText.innerText = "✨ Готово! Ваги підкориговані. Наступний прогноз буде точнішим.";
+                                
+                                // Скидання для можливості повтору
+                                setTimeout(() => {
+                                    document.querySelectorAll('.neuron, line').forEach(el => {
+                                        el.classList.remove('active-backward');
+                                        el.classList.remove('active-forward');
+                                        el.classList.remove('updating');
+                                    });
+                                    document.getElementById('n5').innerHTML = "Вихід<span>Помилка</span>";
+                                    h1.innerHTML = "H1<span>Вага: 0.5</span>";
+                                    h2.innerHTML = "H2<span>Вага: 0.3</span>";
+                                    btnForward.disabled = false;
+                                    statusText.innerText = "Натисніть \"Крок уперед\", щоб подати сигнал";
+                                    statusText.style.borderColor = "#38bdf8";
+                                }, 3000);
+                            });
+                        }, 1200); // Час на "миготіння"
+                    }, 400);
+                });
+            }, 300);
+        });
+    </script>
+</body>
+</html>

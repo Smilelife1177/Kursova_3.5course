@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Візуалізація Градієнтного Спуску</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        h1 { margin-bottom: 5px; color: #38bdf8; }
+        p { color: #94a3b8; margin-bottom: 20px; }
+
+        .container {
+            position: relative;
+            width: 600px;
+            height: 400px;
+            background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+            border: 2px solid #334155;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+        }
+
+        /* Контурні лінії (імітація ландшафту помилки) */
+        .contour {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 50%;
+        }
+
+        /* Кулька (параметри мережі) */
+        #ball {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #22c55e;
+            border-radius: 50%;
+            box-shadow: 0 0 15px #22c55e, inset 0 0 5px white;
+            z-index: 10;
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: translate(-50%, -50%);
+        }
+
+        /* Вектор градієнта */
+        #gradient-arrow {
+            position: absolute;
+            height: 2px;
+            background: #ef4444;
+            transform-origin: left center;
+            display: none;
+            z-index: 5;
+        }
+        #gradient-arrow::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: -4px;
+            border-left: 8px solid #ef4444;
+            border-top: 5px solid transparent;
+            border-bottom: 5px solid transparent;
+        }
+
+        .controls {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background-color: #38bdf8;
+            color: #0f172a;
+        }
+        button:hover { background-color: #7dd3fc; transform: translateY(-2px); }
+        button:disabled { background-color: #475569; cursor: not-allowed; transform: none; }
+        
+        #reset-btn { background-color: #475569; color: white; }
+
+        .status-panel {
+            margin-top: 20px;
+            padding: 15px;
+            background: #1e293b;
+            border-radius: 8px;
+            min-width: 400px;
+            text-align: center;
+            border-bottom: 4px solid #38bdf8;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .loss-val { color: #ef4444; font-weight: bold; }
+        .step-val { color: #22c55e; font-weight: bold; }
+
+        .target {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            background: #38bdf8;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 20px #38bdf8;
+        }
+        .target::before {
+            content: 'Мінімум (Ціль)';
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            white-space: nowrap;
+            color: #38bdf8;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Градієнтний Спуск</h1>
+    <p>Пошук мінімуму функції втрат</p>
+
+    <div class="container" id="canvas">
+        <div class="target"></div>
+        <div id="ball"></div>
+        <div id="gradient-arrow"></div>
+    </div>
+
+    <div class="status-panel">
+        <div id="status-text">Готовий до спуску. Натисніть "Зробити крок"</div>
+        <div class="stats">
+            <div>Крок: <span id="step-count" class="step-val">0</span></div>
+            <div>Втрати (Loss): <span id="loss-value" class="loss-val">0.854</span></div>
+            <div>Learning Rate: <span style="color: #fbbf24">0.1</span></div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="step-btn">Зробити крок (Step)</button>
+        <button id="auto-btn">Авто-спуск</button>
+        <button id="reset-btn">Скинути</button>
+    </div>
+
+    <script>
+        const ball = document.getElementById('ball');
+        const arrow = document.getElementById('gradient-arrow');
+        const canvas = document.getElementById('canvas');
+        const statusText = document.getElementById('status-text');
+        const stepDisplay = document.getElementById('step-count');
+        const lossDisplay = document.getElementById('loss-value');
+        
+        // Початкові параметри
+        let posX = 100;
+        let posY = 80;
+        let steps = 0;
+        let isAuto = false;
+        const targetX = 300;
+        const targetY = 200;
+        const learningRate = 0.15;
+
+        // Створення контурних ліній
+        for(let i = 1; i <= 8; i++) {
+            const contour = document.createElement('div');
+            contour.className = 'contour';
+            contour.style.width = (i * 100) + 'px';
+            contour.style.height = (i * 70) + 'px';
+            canvas.appendChild(contour);
+        }
+
+        function updateBallPosition() {
+            ball.style.left = posX + 'px';
+            ball.style.top = posY + 'px';
+            
+            // Розрахунок "втрат" (відстань до центру)
+            const dist = Math.sqrt(Math.pow(posX - targetX, 2) + Math.pow(posY - targetY, 2));
+            const loss = (dist / 300).toFixed(4);
+            lossDisplay.innerText = loss;
+            
+            if (dist < 5) {
+                statusText.innerText = "✨ Мінімум знайдено! Конвергенція досягнута.";
+                stopAuto();
+                document.getElementById('step-btn').disabled = true;
+            }
+        }
+
+        function performStep() {
+            if (steps >= 50) return;
+
+            // Обчислення вектора градієнта (напрямок до цілі)
+            const dx = targetX - posX;
+            const dy = targetY - posY;
+            
+            // Візуалізація градієнта (червона стрілка)
+            arrow.style.display = 'block';
+            arrow.style.left = posX + 'px';
+            arrow.style.top = posY + 'px';
+            arrow.style.width = '40px';
+            const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+            arrow.style.transform = `rotate(${angle}deg)`;
+
+            statusText.innerText = "🔍 Обчислюємо антиградієнт та робимо крок...";
+
+            setTimeout(() => {
+                // Крок у напрямку антиградієнта
+                posX += dx * learningRate;
+                posY += dy * learningRate;
+                
+                steps++;
+                stepDisplay.innerText = steps;
+                updateBallPosition();
+                arrow.style.display = 'none';
+            }, 300);
+        }
+
+        function stopAuto() {
+            isAuto = false;
+            document.getElementById('auto-btn').innerText = "Авто-спуск";
+        }
+
+        document.getElementById('step-btn').addEventListener('click', performStep);
+
+        document.getElementById('auto-btn').addEventListener('click', () => {
+            if (isAuto) {
+                stopAuto();
+            } else {
+                isAuto = true;
+                document.getElementById('auto-btn').innerText = "Зупинити";
+                const autoStep = () => {
+                    if (!isAuto) return;
+                    performStep();
+                    setTimeout(autoStep, 800);
+                };
+                autoStep();
+            }
+        });
+
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            posX = 100;
+            posY = 80;
+            steps = 0;
+            stepDisplay.innerText = steps;
+            document.getElementById('step-btn').disabled = false;
+            statusText.innerText = "Готовий до спуску. Натисніть \"Зробити крок\"";
+            stopAuto();
+            updateBallPosition();
+        });
+
+        // Ініціалізація
+        updateBallPosition();
+
+    </script>
+</body>
+</html>
